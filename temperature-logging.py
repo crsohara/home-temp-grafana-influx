@@ -15,6 +15,8 @@ DIR = os.path.dirname(os.path.abspath(__file__))
 dotenv_path = os.path.join(DIR, '.env')
 load_dotenv(dotenv_path)
 
+MEASUREMENT_NAME = os.getenv('LOCAL_DB_MEASUREMENT')
+
 def setupLogs() :
   DIR = os.path.dirname(os.path.abspath(__file__))
   logger = logging.getLogger(__name__)
@@ -30,39 +32,31 @@ def setupLogs() :
 def getConditions() :
   DIRPATH = os.path.dirname(os.path.abspath(__file__))
   cmd = './sensor.py'
-  print(os.path.join(DIRPATH, cmd))
   output = subprocess.check_output(os.path.join(DIRPATH, cmd)).decode('utf-8')
   output = json.loads(output)
   return output
 
-def logToLocalDb(data) :
+def formatData(fields):
+  time = datetime.datetime.utcnow()
+  print(time)
+  body = [{
+    "measurement": MEASUREMENT_NAME,
+    "time": time,
+    "fields": fields
+  }]
+  return body
+
+def logToLocal(data) :
   ifuser = os.getenv('LOCAL_USER')
   ifpass = os.getenv('LOCAL_PW')
   ifhost = os.getenv('LOCAL_HOST')
   ifport = os.getenv('LOCAL_PORT')
   ifdb = os.getenv('LOCAL_DB')
-  measurement_name = os.getenv('LOCAL_DB_MEASUREMENT')
-  time = datetime.datetime.utcnow()
-  body = [
-      {
-          "measurement": measurement_name,
-          "time": time,
-          "fields": data
-      }
-  ]
-  ifclient = Local_InfluxDBClient(ifhost,ifport,ifuser,ifpass,ifdb)
-  ifclient.write_points(body)
+
+  ifclient = Local_InfluxDBClient(ifhost, ifport, ifuser, ifpass, ifdb)
+  ifclient.write_points(data)
 
 def logToCloud(data) :
-  time = datetime.datetime.utcnow()
-  body = [
-      {
-          "measurement": "pi1_temperature",
-          "time": time,
-          "fields": data
-      }
-  ]
-
   org = os.getenv('ORG')
   bucket = os.getenv('BUCKET')
   token = os.getenv('TOKEN')
@@ -70,17 +64,20 @@ def logToCloud(data) :
 
   client = InfluxDBClient(url=url, token=token, org=org, debug=True)
   write_api = client.write_api(write_options=SYNCHRONOUS)
-  write_api.write(bucket, org, body)
+  write_api.write(bucket, org, data)
 
-logger = setupLogs()
+def logConditions() :
+  data = getConditions()
+  body = formatData(data)
+  logToLocal(body)
+  logToCloud(body)
 
 try:
   while True:
-    data = getConditions()
-    logToLocalDb(data)
-    logToCloud(data)
+    logConditions()
     time.sleep(300)
 except Exception as inst:
+  logger = setupLogs()
   logger.info('Exception:')
   logger.info(inst)
 except KeyboardInterrupt:
